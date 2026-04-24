@@ -450,6 +450,7 @@ type
     function GetEnvironmentVariables: TStrings; virtual;
     function GetVclIncludeDir(APlatform: TJclBDSPlatform): string; virtual;
     function GetName: string; virtual;
+    function GetIDEUpdateNumber: Integer;
     procedure OutputString(const AText: string);
     function OutputFileDelete(const FileName: string): Boolean;
     procedure SetOutputCallback(const Value: TTextHandler); virtual;
@@ -582,6 +583,7 @@ type
     property ConfigDataLocation: string read FConfigDataLocation;
     property Globals: TStrings read GetGlobals;
     property Name: string read GetName;
+    property IDEUpdateNumber: Integer read GetIDEUpdateNumber;
     property Palette: TJclBorRADToolPalette read GetPalette;
     property Repository: TJclBorRADToolRepository read GetRepository;
     property RootDir: string read FRootDir;
@@ -792,6 +794,7 @@ type
     function GetBCBInstallationFromVersion(VersionNumber: Integer): TJclBorRADToolInstallation;
     function GetDelphiInstallationFromVersion(VersionNumber: Integer): TJclBorRADToolInstallation;
   protected
+    procedure AddInstallation(CreateClass: TJclBorRADToolInstallationClass; const VersionKeyName: string);
     procedure ReadInstallations;
   public
     constructor Create;
@@ -2630,6 +2633,14 @@ end;
 function TJclBorRADToolInstallation.GetName: string;
 begin
   Result := Format('%s %d', [RADToolName, IDEVersionNumber]);
+end;
+
+function TJclBorRADToolInstallation.GetIDEUpdateNumber: Integer;
+var
+  MainProductUpdate: string;
+begin
+  MainProductUpdate := ConfigData.ReadString('InstalledUpdates', 'Main Product Update', '');
+  Result := StrToIntDef(StrAfter('Update', MainProductUpdate), 0);
 end;
 
 function TJclBorRADToolInstallation.GetObjFolderName(APlatform: TJclBDSPlatform): string;
@@ -4865,7 +4876,7 @@ begin
   if Assigned(BDSVersion) then
     Result := LoadResString(BDSVersion.Name)
   else
-    Result := LoadResString(@RsBDSName);
+    Result := LoadResString(@RsRSName);
 end;
 
 function TJclBDSInstallation.RadToolName: string;
@@ -5328,20 +5339,29 @@ begin
     Result := Result and TraverseMethod(Installations[I]);
 end;
 
+procedure TJclBorRADToolInstallations.AddInstallation(CreateClass: TJclBorRADToolInstallationClass; const VersionKeyName: string);
+var
+  Installation: TJclBorRADToolInstallation;
+begin
+  Installation := CreateClass.Create(VersionKeyName);
+  if Installation.Valid then
+    FList.Add(Installation)
+  else
+    Installation.Free;
+end;
+
 procedure TJclBorRADToolInstallations.ReadInstallations;
 var
   VersionNumbers: TStringList;
   PreviousRegWOW64AccessMode: TJclRegWOW64Access;
 
-  function EnumVersions(const KeyName: string; const Personalities: array of string;
-    CreateClass: TJclBorRADToolInstallationClass): Boolean;
+  procedure EnumVersions(const KeyName: string; const Personalities: array of string;
+    CreateClass: TJclBorRADToolInstallationClass);
   var
     I, J: Integer;
     VersionKeyName, PersonalitiesKeyName: string;
     PersonalitiesList: TStrings;
-    Installation: TJclBorRADToolInstallation;
   begin
-    Result := False;
     if RegKeyExists(HKEY_LOCAL_MACHINE, KeyName) and
       RegGetKeyNames(HKEY_LOCAL_MACHINE, KeyName, VersionNumbers) then
       for I := 0 to VersionNumbers.Count - 1 do
@@ -5352,13 +5372,7 @@ var
           begin
             if Length(Personalities) = 0 then
             begin
-              try
-                Installation := CreateClass.Create(VersionKeyName);
-                if Installation.Valid then
-                  FList.Add(Installation);
-              finally
-                Result := True;
-              end;
+              AddInstallation(CreateClass, VersionKeyName);
             end
             else
             begin
@@ -5371,15 +5385,7 @@ var
                 for J := Low(Personalities) to High(Personalities) do
                   if PersonalitiesList.IndexOf(Personalities[J]) >= 0 then
                   begin
-                    try
-                      Installation := CreateClass.Create(VersionKeyName);
-                      if Installation.Valid then
-                        FList.Add(Installation)
-                      else
-                        Installation.Free;
-                    finally
-                      Result := True;
-                    end;
+                    AddInstallation(CreateClass, VersionKeyName);
                     Break;
                   end;
               finally
